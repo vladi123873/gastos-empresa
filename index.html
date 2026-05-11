@@ -195,7 +195,7 @@ const DIAS_ALERTA=7;
 let gastos=[],filtro='todos',busqueda='',activeTab='gastos';
 let showAdd=false,showAI=false,showView=null;
 let form=emptyForm();
-let aiLoading=false,aiResult=null,aiImagePreview=null,aiImageData=null;
+let aiLoading=false,aiResult=null,aiImagePreview=null,aiImageData=null,aiMimeType='image/jpeg';
 let agrupar=false;
 
 function emptyForm(){
@@ -530,7 +530,7 @@ function setTab(t){activeTab=t;render()}
 function openAdd(){showAdd=true;render()}
 function closeAdd(){showAdd=false;render()}
 function openAI(){showAI=true;render()}
-function closeAI(){showAI=false;aiResult=null;aiImagePreview=null;aiImageData=null;render()}
+function closeAI(){showAI=false;aiResult=null;aiImagePreview=null;aiImageData=null;aiMimeType='image/jpeg';render()}
 function viewGasto(id){showView=gastos.find(g=>g.id===id)||null;render()}
 
 function cambiarEstado(id,estado){
@@ -554,8 +554,14 @@ function handleAddFile(input){
 
 function handleAIFile(input){
   const file=input.files[0];if(!file)return;
+  // Guardar el mime type real del archivo
+  aiMimeType=file.type||'image/jpeg';
   const reader=new FileReader();
-  reader.onload=e=>{aiImagePreview=e.target.result;aiImageData=e.target.result.split(',')[1];render()};
+  reader.onload=e=>{
+    aiImagePreview=e.target.result;
+    aiImageData=e.target.result.split(',')[1];
+    render();
+  };
   reader.readAsDataURL(file);
 }
 
@@ -583,20 +589,34 @@ async function analyzeAI(){
   if(!aiImageData||aiLoading)return;
   aiLoading=true;aiResult=null;render();
   try{
+    // Usar el mime type real, forzar a jpeg/png/gif/webp que acepta la API
+    const validTypes=['image/jpeg','image/png','image/gif','image/webp'];
+    const mimeType=validTypes.includes(aiMimeType)?aiMimeType:'image/jpeg';
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,
         messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:aiImageData}},
-          {type:'text',text:`Analiza este comprobante de gasto empresarial chileno. Responde SOLO JSON sin backticks:
-{"descripcion":"texto breve","monto":número,"tipo":"boleta"|"factura"|"transferencia"|"efectivo","fecha":"YYYY-MM-DD"|null,"categoria":"alimentacion"|"transporte"|"oficina"|"servicios"|"representacion"|"otros","proveedor":"nombre"|null,"notas":"observación"|null,"confianza":"alta"|"media"|"baja"}`}
+          {type:'image',source:{type:'base64',media_type:mimeType,data:aiImageData}},
+          {type:'text',text:`Eres un asistente que analiza comprobantes de gastos empresariales chilenos (boletas, facturas, transferencias, recibos). Extrae la información visible y responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin backticks, sin markdown. Formato exacto:
+{"descripcion":"descripcion breve del gasto","monto":numero_sin_puntos,"tipo":"boleta","fecha":"YYYY-MM-DD","categoria":"alimentacion","proveedor":"nombre o null","notas":"observacion o null","confianza":"alta"}
+Valores posibles para tipo: boleta, factura, transferencia, efectivo
+Valores posibles para categoria: alimentacion, transporte, oficina, servicios, representacion, otros
+Si no puedes leer un campo usa null. Responde SOLO el JSON.`}
         ]}]})
     });
+    if(!resp.ok){
+      const err=await resp.json().catch(()=>({}));
+      throw new Error(err?.error?.message||'Error '+resp.status);
+    }
     const data=await resp.json();
     const text=data.content?.find(b=>b.type==='text')?.text||'';
-    aiResult=JSON.parse(text.trim());
+    // Limpiar posibles backticks o texto extra
+    const clean=text.replace(/```json|```/g,'').trim();
+    const jsonMatch=clean.match(/\{[\s\S]*\}/);
+    if(!jsonMatch) throw new Error('Respuesta no válida');
+    aiResult=JSON.parse(jsonMatch[0]);
   }catch(e){
-    aiResult={error:'No se pudo analizar. Intenta con una imagen más clara.'};
+    aiResult={error:'No se pudo analizar: '+e.message+'. Intenta con una imagen más nítida y bien iluminada.'};
   }
   aiLoading=false;render();
 }
