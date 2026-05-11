@@ -651,50 +651,168 @@ function importAI(){
 // ─── EXPORTAR EXCEL ───────────────────────────────────────────
 function exportarExcel(){
   if(!window.XLSX){toast('⚠️ Cargando librería...');return}
-  const wb=XLSX.utils.book_new();
 
-  // Hoja 1: Todos los gastos
-  const filas=gastos.map((g,i)=>[
-    i+1,g.fecha||'',g.descripcion||'',g.monto||0,
-    g.tipo||'',getCat(g.categoria).label.replace(/[\u{1F000}-\u{1FFFF}]/gu,'').trim(),
-    g.responsable||'',g.estado||'',g.notas||'',
-    g.imagePreview?'Sí':'No',diasSinRendir(g)||''
-  ]);
-  const ws=XLSX.utils.aoa_to_sheet([
-    ['N°','Fecha','Descripción','Monto CLP','Tipo','Categoría','Responsable','Estado','Notas','Comprobante','Días pendiente'],
-    ...filas
-  ]);
-  ws['!cols']=[{wch:4},{wch:11},{wch:30},{wch:13},{wch:13},{wch:17},{wch:20},{wch:11},{wch:22},{wch:11},{wch:13}];
-  XLSX.utils.book_append_sheet(wb,ws,'Todos los gastos');
+  const wb = XLSX.utils.book_new();
+  const num_clp = '#,##0';
+  const num_date = 'DD/MM/YYYY';
 
-  // Hoja 2: Por categoría
-  const ws2=XLSX.utils.aoa_to_sheet([
-    ['Categoría','N° Gastos','Total CLP','Pendiente CLP','Rendido CLP'],
-    ...CATS.map(c=>{
-      const lista=gastos.filter(g=>g.categoria===c.id);
-      if(!lista.length)return null;
-      return [
-        c.label.replace(/[\u{1F000}-\u{1FFFF}]/gu,'').trim(),
-        lista.length,
-        lista.reduce((s,g)=>s+g.monto,0),
-        lista.filter(g=>g.estado==='pendiente').reduce((s,g)=>s+g.monto,0),
-        lista.filter(g=>g.estado==='rendido').reduce((s,g)=>s+g.monto,0),
-      ];
-    }).filter(Boolean)
-  ]);
-  ws2['!cols']=[{wch:20},{wch:11},{wch:15},{wch:15},{wch:15}];
-  XLSX.utils.book_append_sheet(wb,ws2,'Por categoría');
+  // ── Helpers ──────────────────────────────────────────────
+  function makeSheet(data, colWidths){
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = colWidths.map(w=>({wch:w}));
+    return ws;
+  }
 
-  // Hoja 3: Pendientes y alertas
-  const pend=gastos.filter(g=>g.estado==='pendiente');
-  const ws3=XLSX.utils.aoa_to_sheet([
-    ['Fecha','Descripción','Monto CLP','Tipo','Responsable','Días pendiente','Sin comprobante'],
-    ...pend.map(g=>[g.fecha||'',g.descripcion||'',g.monto||0,g.tipo||'',g.responsable||'',diasSinRendir(g),g.imagePreview?'No':'⚠️ Sí'])
-  ]);
-  ws3['!cols']=[{wch:11},{wch:30},{wch:13},{wch:13},{wch:20},{wch:14},{wch:16}];
-  XLSX.utils.book_append_sheet(wb,ws3,'Pendientes');
+  function styleCell(ws, addr, opts={}){
+    if(!ws[addr]) ws[addr]={t:'z',v:''};
+    ws[addr].s = {
+      font:{name:'Arial', bold:!!opts.bold, sz:opts.sz||12, color:{rgb:opts.color||'000000'}},
+      alignment:{horizontal:opts.halign||'center', vertical:'center', wrapText:!!opts.wrap},
+      fill: opts.bg ? {patternType:'solid', fgColor:{rgb:opts.bg}} : {patternType:'none'},
+      border: opts.border ? {
+        top:{style:'thin',color:{rgb:'000000'}},
+        bottom:{style:'thin',color:{rgb:'000000'}},
+        left:{style:'thin',color:{rgb:'000000'}},
+        right:{style:'thin',color:{rgb:'000000'}}
+      } : {}
+    };
+    if(opts.numFmt) ws[addr].z = opts.numFmt;
+  }
 
-  XLSX.writeFile(wb,`Gastos_CajaChica_${new Date().toISOString().split('T')[0]}.xlsx`);
+  // ── Clasificar gastos ────────────────────────────────────
+  const facturas  = gastos.filter(g=>g.tipo==='factura');
+  const boletas   = gastos.filter(g=>g.tipo==='boleta');
+  const transf    = gastos.filter(g=>g.tipo==='transferencia');
+  const efectivo  = gastos.filter(g=>g.tipo==='efectivo');
+  const otrosG    = [...transf, ...efectivo];
+
+  const today = new Date().toLocaleDateString('es-CL');
+  const mes   = new Date().toLocaleDateString('es-CL',{month:'long',year:'numeric'});
+
+  // ── Hoja 1: RENDICIÓN formato Cumbres ─────────────────────
+  const rows = [];
+  const push = (r) => rows.push(r);
+
+  push(['']);
+  push(['']);
+  push(['']);
+  push(['']);
+  push(['RENDICIÓN FONDOS CUMBRES','','',today]);
+  push(['']);
+  push(['DEPARTAMENTO','',getCat('otros').label.replace(/[^\w\s]/g,'')]);
+  push(['RENDICIÓN   Nº','','1']);
+  push(['MOTIVO GASTO','','Caja Chica']);
+  push(['FECHA GASTOS','',mes]);
+  push(['RENDIDA  POR','','']);
+  push(['']);
+
+  push(['ABONO CAJA CHICA']);
+  push(['FECHA','DESCRIPCIÓN','MONTO']);
+  for(let i=0;i<5;i++) push(['','','']);
+  push(['','TOTAL ABONO', '=SUM(C15:C19)']);
+  push(['']);
+  push(['']);
+  push(['']);
+
+  // Facturas
+  push(['GASTOS MATERIALES - ALOJAMIENTO - ALIMENTACIÓN CON FACTURAS']);
+  push(['FECHA','PROVEEDOR','N° FACTURA','NETO','IVA','TOTAL']);
+  const fStart = rows.length + 1;
+  facturas.forEach(g=>{
+    push([g.fecha||'', g.descripcion||'', g.notas||'', g.monto||0, Math.round((g.monto||0)*0.19), (g.monto||0)+Math.round((g.monto||0)*0.19)]);
+  });
+  for(let i=facturas.length;i<20;i++) push(['','','','','','']);
+  push(['','','TOTAL GASTOS MATERIALES CON FACTURAS',
+    {f:`SUM(D${fStart}:D${fStart+19})`},
+    {f:`SUM(E${fStart}:E${fStart+19})`},
+    {f:`SUM(F${fStart}:F${fStart+19})`}]);
+  push(['']);
+
+  // Combustibles (vacío)
+  push(['GASTOS COMBUSTIBLES CON FACTURAS']);
+  push(['FECHA','PROVEEDOR','N° FACTURA','NETO','IE','IVA','TOTAL']);
+  const cStart = rows.length + 1;
+  for(let i=0;i<8;i++) push(['','','','','','','']);
+  push(['','','TOTAL GASTOS COMBUSTIBLES',
+    {f:`SUM(D${cStart}:D${cStart+7})`},
+    {f:`SUM(E${cStart}:E${cStart+7})`},
+    {f:`SUM(F${cStart}:F${cStart+7})`},
+    {f:`SUM(G${cStart}:G${cStart+7})`}]);
+  push(['']);
+
+  // Boletas
+  push(['GASTOS CON BOLETAS']);
+  push(['FECHA','PROVEEDOR','N° BOLETA','VALOR']);
+  const bStart = rows.length + 1;
+  boletas.forEach(g=>{
+    push([g.fecha||'', g.descripcion||'', g.notas||'', g.monto||0]);
+  });
+  for(let i=boletas.length;i<12;i++) push(['','','','']);
+  push(['','','TOTAL GASTOS CON BOLETAS', {f:`SUM(D${bStart}:D${bStart+11})`}]);
+  push(['']);
+
+  // Otros gastos
+  push(['OTROS GASTOS']);
+  push(['FECHA','PROVEEDOR / DESCRIPCIÓN','VALOR']);
+  const oStart = rows.length + 1;
+  otrosG.forEach(g=>{
+    push([g.fecha||'', g.descripcion||'', g.monto||0]);
+  });
+  for(let i=otrosG.length;i<20;i++) push(['','','']);
+  push(['','TOTAL OTROS GASTOS', {f:`SUM(C${oStart}:C${oStart+19})`}]);
+  push(['']);
+
+  const totalRow = rows.length + 1;
+  const tFact = fStart+20; const tComb = cStart+8; const tBol = bStart+12; const tOtr = oStart+20;
+  push(['','TOTAL CAJA CHICA','',{f:`D${tFact}+G${tComb}+D${tBol}+C${tOtr}`}]);
+  push(['']);push(['']);push(['']);push(['']);push(['']);
+  push(['','','','','','_______________________________','_______________________________']);
+  push(['','','Encargada Oficina Técnica','','','','Visitador de Obra']);
+
+  const ws1 = XLSX.utils.aoa_to_sheet(rows);
+  ws1['!cols'] = [{wch:14},{wch:50},{wch:16},{wch:13},{wch:13},{wch:13},{wch:14}];
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Rendición Caja Chica');
+
+  // ── Hoja 2: Detalle completo ──────────────────────────────
+  const det = [['N°','Fecha','Descripción','Monto','Tipo','Categoría','Responsable','Estado','Comprobante','Días pendiente']];
+  gastos.forEach((g,i)=>det.push([
+    i+1, g.fecha||'', g.descripcion||'', g.monto||0,
+    g.tipo||'', getCat(g.categoria).label.replace(/[^\w\s]/g,'').trim(),
+    g.responsable||'', g.estado||'',
+    g.imagePreview?'Sí':'No', diasSinRendir(g)||''
+  ]));
+  const ws2 = XLSX.utils.aoa_to_sheet(det);
+  ws2['!cols']=[{wch:4},{wch:11},{wch:35},{wch:13},{wch:13},{wch:18},{wch:20},{wch:11},{wch:11},{wch:13}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Detalle completo');
+
+  // ── Hoja 3: Por categoría ─────────────────────────────────
+  const cat_data = [['Categoría','N° Gastos','Total CLP','Pendiente CLP','Rendido CLP']];
+  CATS.forEach(c=>{
+    const lista=gastos.filter(g=>g.categoria===c.id);
+    if(!lista.length)return;
+    cat_data.push([
+      c.label.replace(/[^\w\s]/g,'').trim(), lista.length,
+      lista.reduce((s,g)=>s+g.monto,0),
+      lista.filter(g=>g.estado==='pendiente').reduce((s,g)=>s+g.monto,0),
+      lista.filter(g=>g.estado==='rendido').reduce((s,g)=>s+g.monto,0),
+    ]);
+  });
+  const ws3 = XLSX.utils.aoa_to_sheet(cat_data);
+  ws3['!cols']=[{wch:20},{wch:11},{wch:15},{wch:15},{wch:15}];
+  XLSX.utils.book_append_sheet(wb, ws3, 'Por categoría');
+
+  // ── Hoja 4: Pendientes ────────────────────────────────────
+  const pend_data=[['Fecha','Descripción','Monto','Tipo','Responsable','Días pendiente','Sin comprobante']];
+  gastos.filter(g=>g.estado==='pendiente').forEach(g=>pend_data.push([
+    g.fecha||'',g.descripcion||'',g.monto||0,g.tipo||'',
+    g.responsable||'',diasSinRendir(g),g.imagePreview?'No':'⚠️ Sí'
+  ]));
+  const ws4 = XLSX.utils.aoa_to_sheet(pend_data);
+  ws4['!cols']=[{wch:11},{wch:35},{wch:13},{wch:13},{wch:20},{wch:14},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws4, 'Pendientes');
+
+  XLSX.writeFile(wb, `Rendicion_CajaChica_${new Date().toISOString().split('T')[0]}.xlsx`);
   toast('📊 Excel descargado');
 }
 
