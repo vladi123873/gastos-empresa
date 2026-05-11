@@ -68,7 +68,7 @@
     .badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:700;margin-top:3px}
     .badge-dot{width:5px;height:5px;border-radius:50%}
     .card-person{font-size:11px;color:#64748B;margin-top:5px}
-    .card-img{width:100%;max-height:80px;object-fit:cover;border-radius:7px;margin-top:7px;border:1px solid #E2E8F0}
+    .card-img{width:100%;max-height:180px;object-fit:contain;background:#F8FAFC;border-radius:7px;margin-top:7px;border:1px solid #E2E8F0}
     .card-actions{display:flex;gap:5px;margin-top:8px}
     .btn-sm{flex:1;padding:6px 0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:none}
     .btn-view{background:#F8FAFC;border:1px solid #E2E8F0;color:#475569}
@@ -101,7 +101,7 @@
     .tipo-btn.selected{border-color:#6366F1;background:#EEF2FF;color:#4F46E5}
     .attach-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
     .attach-btn{padding:12px 8px;border-radius:9px;border:2px dashed #CBD5E1;background:#F8FAFC;cursor:pointer;font-size:12px;color:#64748B;font-weight:600;text-align:center}
-    .preview-img{width:100%;border-radius:8px;margin-top:7px;max-height:130px;object-fit:cover}
+    .preview-img{width:100%;border-radius:8px;margin-top:7px;max-height:220px;object-fit:contain;background:#F8FAFC}
     .btn-submit{width:100%;padding:13px;border-radius:11px;border:none;background:linear-gradient(135deg,#1E293B,#334155);color:#fff;font-weight:700;font-size:14px;cursor:pointer;margin-top:4px}
 
     .ia-tip{background:#F0F9FF;border-radius:10px;padding:12px;font-size:12px;color:#0369A1;margin-bottom:12px}
@@ -125,10 +125,23 @@
       body{background:#fff}
       .header,.kpi-grid,.alert-bar,.export-bar,.filter-row,.search-input,.card-actions,.tabs,.hbtns,.toast,.overlay{display:none!important}
       .content{padding:0}
-      .card{break-inside:avoid;border:1px solid #ccc!important;box-shadow:none!important;margin-bottom:10px;page-break-inside:avoid}
+      .card{break-inside:avoid;border:1px solid #ccc!important;box-shadow:none!important;margin-bottom:14px;page-break-inside:avoid;padding:14px}
       .cat-section{page-break-inside:avoid}
       .print-header{display:block!important}
-      .card-img{max-height:200px!important}
+      .card-img{
+        max-height:none!important;
+        height:auto!important;
+        width:100%!important;
+        object-fit:contain!important;
+        background:#fff!important;
+        display:block;
+        margin-top:8px;
+        page-break-inside:avoid;
+      }
+      .warn-tag{display:none!important}
+      .badge{font-size:10px!important}
+      /* Una tarjeta por página si tiene imagen */
+      .card:has(.card-img){page-break-after:auto}
     }
     .print-header{display:none;text-align:center;padding:18px 0 12px;border-bottom:2px solid #1E293B;margin-bottom:18px}
     .print-header h1{font-size:17px;font-weight:800}
@@ -513,7 +526,7 @@ function renderModalView(){
         ['Estado',g.estado],['Notas',g.notas]]
         .filter(([,v])=>v)
         .map(([k,v])=>`<div class="detail-row"><span class="detail-key">${k}</span><span class="detail-val">${v}</span></div>`).join('')}
-      ${g.imagePreview?`<img src="${g.imagePreview}" style="width:100%;border-radius:9px;margin-top:10px"/>`:''}
+      ${g.imagePreview?`<img src="${g.imagePreview}" style="width:100%;height:auto;object-fit:contain;border-radius:9px;margin-top:10px;background:#F8FAFC;border:1px solid #E2E8F0"/>`:''}
     </div>
   </div>`;
 }
